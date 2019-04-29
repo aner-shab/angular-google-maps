@@ -1,5 +1,5 @@
 import { Component, ElementRef, EventEmitter, OnChanges, OnDestroy, OnInit, SimpleChanges, Input, Output } from '@angular/core';
-import {Subscription} from 'rxjs';
+import {Subscription, Subject} from 'rxjs';
 
 import {MouseEvent} from '../map-types';
 import {GoogleMapsAPIWrapper} from '../services/google-maps-api-wrapper';
@@ -16,6 +16,7 @@ import {PolylineManager} from '../services/managers/polyline-manager';
 import {KmlLayerManager} from './../services/managers/kml-layer-manager';
 import {DataLayerManager} from './../services/managers/data-layer-manager';
 import {FitBoundsService} from '../services/fit-bounds';
+import { debounceTime } from 'rxjs/operators';
 
 declare var google: any;
 
@@ -273,6 +274,13 @@ export class AgmMap implements OnChanges, OnInit, OnDestroy {
 
   private _observableSubscriptions: Subscription[] = [];
   private _fitBoundsSubscription: Subscription;
+  private debouncer: Subject<any> = new Subject<any>();
+
+  /**
+   * This event emitter gets emitted when the mouse moves. Use with caution!
+   *
+   */
+  @Output() mapMouseMove: EventEmitter<MouseEvent> = new EventEmitter<MouseEvent>();
 
   /**
    * This event emitter gets emitted when the user clicks on the map (but not when they click on a
@@ -323,7 +331,11 @@ export class AgmMap implements OnChanges, OnInit, OnDestroy {
    */
   @Output() mapReady: EventEmitter<any> = new EventEmitter<any>();
 
-  constructor(private _elem: ElementRef, private _mapsWrapper: GoogleMapsAPIWrapper, protected _fitBoundsService: FitBoundsService) {}
+  constructor(private _elem: ElementRef, private _mapsWrapper: GoogleMapsAPIWrapper, protected _fitBoundsService: FitBoundsService) {
+
+    this.debouncer.pipe(debounceTime(100)).subscribe((val) => this.mapMouseMove.emit(val));
+
+  }
 
   /** @internal */
   ngOnInit() {
@@ -544,13 +556,19 @@ export class AgmMap implements OnChanges, OnInit, OnDestroy {
       {name: 'click', emitter: this.mapClick},
       {name: 'rightclick', emitter: this.mapRightClick},
       {name: 'dblclick', emitter: this.mapDblClick},
+      {name: 'mousemove', emitter: null}
     ];
 
     events.forEach((e: Event) => {
       const s = this._mapsWrapper.subscribeToMapEvent<{latLng: LatLng}>(e.name).subscribe(
           (event: {latLng: LatLng}) => {
             const value = <MouseEvent>{coords: {lat: event.latLng.lat(), lng: event.latLng.lng()}};
-            e.emitter.emit(value);
+              if (e.name === 'mousemove'){
+                this.debouncer.next(value);
+              }
+              else{
+                e.emitter.emit(value);
+              }
           });
       this._observableSubscriptions.push(s);
     });
